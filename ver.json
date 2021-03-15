@@ -1,0 +1,6 @@
+{
+  "0.1": {
+    "change_list": "this is only initial release for testing purpose",
+    "del": ["/files/test2.txt", "log.txt"]
+  }
+}
