@@ -3,4 +3,8 @@
     "change_list": "this is only initial release for testing purpose",
     "id": 2
   }
+  "0.5": {
+    "change_list": "fist working release",
+    "id": 3
+  }
 }
