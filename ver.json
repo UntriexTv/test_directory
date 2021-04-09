@@ -14,5 +14,8 @@
   "0.8": {
   "change_list": "normal update",
   "id": 5
-  }
+  },
+  "0.9": {
+  "change_list": "Fully working prototype",
+  "id": 6
 }
