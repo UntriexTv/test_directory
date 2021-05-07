@@ -7,11 +7,26 @@ import engine
 import requests
 import uuid
 import subprocess
+import socket
+import shutil
+from pathlib import Path
 from fastapi import FastAPI, Request, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+devs = {
+    "Matej Justus": {
+        "git": "https://github.com/UntriexTv", "mail": "maco.justus@gmail.com"},
+    "Benjamin Kojda": {
+        "git": "https://github.com/Tucan444", "mail": "ben4442004@gmail.com"
+    },
+    "Jakub Ďuriš": {
+        "git": "https://github.com/ff0082", "mail": "jakub1.duris@gmail.com"
+    },
+    "Samuel Šubika": {
+          "git": "https://github.com/JustSteel", "mail": "SteelSamko2000@gmail.com"}
+}
 check = engine.Scan()
 check.check_to_go()
 if check.state_list["error"]:
@@ -25,7 +40,21 @@ with open("settings.json", "r", encoding='utf-8') as f:  # loading settings
 with open("filesystem.json", "r", encoding='utf-8') as f:  # loading filesystem
     filesystem = json.load(f)
 
-IP = settings["IP"]
+
+if settings["clear_cache_on_startup"]:
+    shutil.rmtree("cache")
+    os.mkdir("cache")
+
+
+def get_my_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("8.8.8.8", 80))
+    ip = s.getsockname()[0]
+    s.close()
+    return ip
+
+
+IP = get_my_ip()
 ID = settings["ID"]
 location = settings["location"]
 time_to_save = settings["time_to_save"]
@@ -75,6 +104,11 @@ class Sensor(BaseModel):
     value: str
 
 
+class Message(BaseModel):
+    m_sender: str
+    message: str
+
+
 @app.get("/")
 def read_root():
     return "wikispot"
@@ -92,24 +126,26 @@ def heartbeat(s_table: ServerTable, request: Request):
                         s_table.last_heartbeat[position]:
                     heartbeat_table["last_heartbeat"][heartbeat_table["ID"].index(server_id)] = s_table.last_heartbeat[
                         position]
-                    log.debug(f"updated {server_id}`s heartbeat to {s_table.last_heartbeat[position]}")
+                    log.debug(f"updated {server_id}`s heartbeat to     {s_table.last_heartbeat[position]}")
                     heartbeat_table["file_system"][heartbeat_table["ID"].index(server_id)] = s_table.file_system[
                         position]
             elif server_id == ID:
                 log.debug(f"Updated my heartbeat from {s_table.last_heartbeat[position]} to {time_to_heartbeat}")
                 heartbeat_table["last_heartbeat"][heartbeat_table["ID"].index(ID)] = time_to_heartbeat
             else:
+                log.message(f"Heartbeat from new server:\n        ID: {server_id} IP: {request.client}")
                 heartbeat_table["ID"].append(s_table.ID[position])
                 heartbeat_table["IP"].append(s_table.IP[position])
                 heartbeat_table["location"].append(s_table.location[position])
                 heartbeat_table["file_system"].append(s_table.file_system[position])
                 heartbeat_table["last_heartbeat"].append(s_table.last_heartbeat[position])
+                log.debug(f"Created {server_id}`s heartbeat:    {s_table.last_heartbeat[position]}")
     except Exception as error:
         log.error(f"heartbeat > {error}")
 
     if heartbeat_table["ID"][heartbeat_table["IP"].index(request.client.host)] in offline:
         offline.remove(heartbeat_table["ID"][heartbeat_table["IP"].index(request.client.host)])
-        log.message(f"{request.client.host} gone online")
+        log.warning(f"{request.client.host} gone online")
 
     return heartbeat_table, {"ID": ID, "file_system": filesystem, "location": location}
 
@@ -117,13 +153,13 @@ def heartbeat(s_table: ServerTable, request: Request):
 @app.get("/{IDx}/sensors")
 def get_sensors(IDx: int, request: Request):
     global sensors
-    log.message(f"sensor data sent to {request.client.host}:{request.client.port}")
-    log.debug(f"sensor data: {sensors}")
     if IDx == ID:
+        log.debug(f"Sensor data sent to {request.client.host} :\n    {sensors}")
         return sensors
     else:
         try:
             r = requests.get(f"""http://{heartbeat_table["IP"][heartbeat_table["ID"].index(IDx)]}:8000/{IDx}/sensors""")
+            log.debug(f"Sensor data from {IDx} sent to {request.client.host} :\n    {r.json()}")
             return r.json()
         except Exception as error:
             log.error(f"Sensor data download from {IDx} failed.\n ERROR: {error}")
@@ -138,9 +174,10 @@ def get_file(IDx: int, file: str, request: Request):
         if os.path.isfile(f"files/{file}"):
             return FileResponse(f"files/{file}")
         else:
-            return f"File {file} does not exist."
+            log.warning(f"{request.client} tried to access file ({file}) that does not exist on this server.")
+            return f"ERROR: File {file} does not exist."
     if IDx not in heartbeat_table["ID"]:
-        log.error(f"{request.client} tried to access id ({IDx}) that does not exist.")
+        log.warning(f"{request.client} tried to access id ({IDx}) that does not exist.")
         return f"ERROR: {IDx} does not exist."
     else:
         if os.path.isdir(f"cache/{IDx}"):
@@ -155,32 +192,42 @@ def get_file(IDx: int, file: str, request: Request):
                 else:
                     log.debug(f"returning cached file cache/{IDx}{file}")
                     return FileResponse(f"cache/{IDx}/{file}")
+        elif sum(file.stat().st_size for file in Path("cache").rglob('*'))/1024**2 > settings["cache_size_mb"]:
+            shutil.rmtree("cache")
+            os.mkdir("cache")
+            log.message(f"""Clearing cache, because of limit of {settings["cache_size_mb"]}MB""")
+            os.mkdir(f"cache/{IDx}")
         else:
             os.mkdir(f"cache/{IDx}")
         r = requests.get(f"http://{server_ip}:8000/files/{IDx}/{file}")
         if "does not exist" in r.text:
-            log.error(f"{request.client} tried to access file ({file}) on id {IDx} that does not exist.")
+            log.warning(f"{request.client} tried to access file ({file}) on id {IDx} that does not exist.")
             return f"ERROR: {file} does not exist."
         log.message(f"Downloaded {file} from {server_ip}")
-        if ".txt" in file:
-            with open(f"cache/{IDx}/{file}", "wb", encoding='utf-8') as save:
-                save.write(bytes(r.content))
-        else:
-            with open(f"cache/{IDx}/{file}", "wb") as save:
-                save.write(bytes(r.content))
+        with open(f"cache/{IDx}/{file}", "wb") as save:
+            save.write(bytes(r.content))
         return FileResponse(f"cache/{IDx}/{file}")
 
 
-@app.post("/update_sensor")
-def update_sensors(data: Sensor, request: Request):
+@app.post("/{IDx}/update_sensor")
+def update_sensors(data: Sensor, request: Request, IDx: int):
     global sensors
-    if data.name in sensors:
-        log.message(f"{request.client.host} updated sensor {data.name} with value {data.value}")
-        sensors[data.name] = data.value
+    if IDx == ID:
+        if data.name in sensors:
+            if not data.value:
+                log.message(f"{request.client.host} removed sensor {data.name}")
+                del sensors[data.name]
+            else:
+                log.message(f"{request.client.host} updated sensor {data.name} with value {data.value}")
+                sensors[data.name] = data.value
+        else:
+            log.warning(f"{request.client} created new sensor.\n SENSOR: {data}")
+            sensors[data.name] = data.value
+            return f"Successfuly made new sensor"
     else:
-        log.warning(f"{request.client} created new sensor.\n SENSOR: {data}")
-        sensors[data.name] = data.value
-        return f"Successfuly made"
+        r = requests.post(f"""http://{heartbeat_table["IP"][heartbeat_table["ID"].index(IDx)]}:8000/{IDx}/update_sensor""",
+                          json={"name": data.name, "value": data.value})
+        return r.text
 
 
 @app.get("/compare/{file}")
@@ -197,11 +244,15 @@ def comparision(file: str):
 
 @app.get("/devices_list")
 def get_devices_list():
-    return [{"connected_id": ID}, *heartbeat_table["file_system"]]
+    returning_value = [{"connected_id": ID}, *heartbeat_table["file_system"]]
+    while "" in returning_value:
+        returning_value.remove("")
+    return returning_value
 
 
 @app.get("/admin/get/{command}")
-def admin_get(command: str):
+def admin_get(command: str, request: Request):
+    log.message(f"{request.client} used admin command.")
     if command == "get_updates":
         return [update.get_version(), update.get_updates()]
     if "update-" in command:
@@ -213,59 +264,73 @@ def admin_get(command: str):
                 if r.text.strip('"').split("\\n")[0] == "SUCCESS":
                     log.message(f"{rpi} was updated to {version}")
                 else:
-                    log.warning(f"""{rpi} failed to update. Manual update may be needed for proper working of network.
+                    log.error(f"""{rpi} failed to update. Manual update may be needed for proper working of network.
                     Response from server: {r.text}""")
                 state.append({rpi: r.text.strip('"').split("\\n")})
-        # Todo Remove development comments
-        # subprocess.check_output(f"""python3 system.py update -version {version}""")
+        subprocess.check_output(f"""python3 system.py update -version {version}""")
         log.message(f"All devices in network should be updated to {version}")
         state.append({IP: "updated"})
         return state
     if "update_one-" in command:
         state = subprocess.check_output(["python3", "system.py", "update", "-version", f"""{command.split("-")[1]}"""])
-        log.warning(state.decode("utf-8"))
+        log.message(state.decode("utf-8"))
         return state.decode("utf-8")
-    if command == "settings":
-        return settings
+    if command == "heartbeat_table":
+        return heartbeat_table
     if command == "filesystem":
         return filesystem
 
 
-@app.post("/admin/upload_file")
-async def create_upload_file(uploaded_file: UploadFile = File(...), patch: str = ""):
+@app.post("/admin/{id_server}/upload_file")
+async def create_upload_file(id_server: int, uploaded_file: UploadFile = File(...), patch: str = ""):
     file_location = f"{patch}{uploaded_file.filename}"
-    with open(file_location, "wb+") as file_object:
-        file_object.write(uploaded_file.file.read())
-    return {"info": f"file '{uploaded_file.filename}' saved at '{file_location}'"}
-
-
-# Todo upload of update file and settings
+    if id_server == ID:
+        with open(file_location, "wb+") as file_object:
+            file_object.write(uploaded_file.file.read())
+    else:
+        with open(f"cache/{uploaded_file.filename}", "wb+") as file_object:
+            file_object.write(uploaded_file.file.read())
+        file = open(f"cache/{uploaded_file.filename}", "rb")
+        requests.post(f"""http://{heartbeat_table["IP"][heartbeat_table["ID"].index(id_server)]}:8000/admin/{id_server}/upload_file""",
+                      files={"uploaded_file": file, "patch": patch})
+        file.close()
+    return {"info": f"""file '{uploaded_file.filename}' saved at '{id_server}/{file_location}'"""}
 
 
 @app.get("/messages/get")
-def get_messages(timestamp):
-    for position, message in enumerate(reversed(messages)):
-        if message["timestamp"] == timestamp:
-            return reversed(messages)[:position]
+def get_messages(timestamp: str = None):
+    if timestamp:
+        for position, message in enumerate(reversed(messages)):
+            if float(message["timestamp"]) <= float(timestamp):
+                return list(reversed(list(reversed(messages))[:position]))
+
+        if timestamp == "0":
+            return messages
+        return []
+    else:
+        return messages[:10]
 
 
-@app.get("/messages/reqister")
-def get_messages():
+@app.get("/messages/register")
+def register():
     return [uuid.uuid4().hex[24:], messages[:9]]
 
 
+@app.get("/discovery")
+def discovery():
+    return "Success"
+
+
 @app.post("/messages/post")
-def get_messages(m_sender: str = None, message: str = None):
-    if m_sender and message:
-        messages.append({"sender": m_sender, "message": message, "timestamp": time.time()})
+def post_messages(data: Message):
+    log.debug(f"Message was posted. Sender: {data.m_sender}\n MESSAGE: {data.message}")
+    if len(messages) >= settings["max_mess"]:
+        del messages[:len(messages) - settings["max_mess"]]
+    if data.m_sender and data.message:
+        messages.append({"sender": data.m_sender, "message": data.message, "timestamp": time.time()})
         return "successful"
     else:
         return "Empty message/sender"
-
-
-@app.get("/debug")
-def debug_esp():
-    return "test successful"
 
 
 def send_heartbeat(ip, id):
@@ -318,9 +383,10 @@ def mainloop():
         time.sleep(1)
 
 
-print(f"""Starting WikiSpot V{update.get_version()["version"]}""")
+print(f"""Starting WikiSpot V{update.get_version()["version"]} on http://{IP}:8000""")
 print("GitHub: https://github.com/Tucan444/Mabasej_Team")
+print("Developers of this project: ")
+for dev in devs:
+    print(f"""{dev}, GitHub: {devs[dev]["git"]}, mail: {devs[dev]["mail"]}""")
 thread_1 = threading.Thread(target=mainloop, daemon=True)
 thread_1.start()
-
-# Todo settings for easy adding/editing files/id/text

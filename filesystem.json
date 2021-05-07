@@ -3,8 +3,8 @@
   "location": "49.14178021389778,18.353783098441415",
   "description": {
     "title": "legionrpi",
-    "description_s": "krátky popis, ktorý bude zobrazený iba v náhladovom okne",
-    "description_l": "dlhší popis zariadenia, ktorý bude zobrazený po otvorení",
+    "description_s": "kr\u00e1tky popis, ktor\u00fd bude zobrazen\u00fd iba v n\u00e1hladovom okne",
+    "description_l": "dlh\u0161\u00ed popis zariadenia, ktor\u00fd bude zobrazen\u00fd po otvoren\u00ed",
     "photo_s": "test.jpg",
     "photo_b": "test.png"
   },
@@ -13,7 +13,8 @@
       "name": "test",
       "format": ".jpg",
       "description": "toto je jpg test file"
-    }, {
+    },
+    {
       "name": "test2",
       "format": ".txt",
       "description": "toto je txt test file"
