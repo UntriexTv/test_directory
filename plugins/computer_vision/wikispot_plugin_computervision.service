@@ -9,7 +9,7 @@ Restart=always
 RestartSec=10
 User=root
 WorkingDirectory=/root/test_directory/plugins/computer_vision
-ExecStart=/root/test_directory/plugins/computer_vision
+ExecStart=/root/test_directory/plugins/computer_vision/com_vision.py
 
 [Install]
 WantedBy=multi-user.target
