@@ -1,0 +1,15 @@
+[Unit]
+Description=WikiSpot server
+After=network.target
+StartLimitIntervalSec=4
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+User=root
+WorkingDirectory=/root/test_directory/
+ExecStart=/root/test_directory/run.py
+
+[Install]
+WantedBy=multi-user.target
