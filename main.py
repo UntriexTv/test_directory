@@ -55,10 +55,11 @@ def get_my_ip():
 
 
 IP = get_my_ip()
-ID = settings["ID"]
-location = settings["location"]
+ID = filesystem["ID"]
+location = filesystem["location"]
 time_to_save = settings["time_to_save"]
-
+settings["location"]
+settings["ID"]
 app = FastAPI()  # init of FastAPI
 
 origins = ["*", ]
@@ -83,12 +84,12 @@ heartbeat_table = settings["heartbeat_table"]
 sensors = {}
 
 messages = []  # {user: "", timestamp: time.Time(), message: ""}
-
-heartbeat_table["ID"].append(ID)
-heartbeat_table["IP"].append(IP)
-heartbeat_table["location"].append(location)
-heartbeat_table["file_system"].append(filesystem)
-heartbeat_table["last_heartbeat"].append(time_to_heartbeat)
+if ID not in heartbeat_table["ID"]:
+    heartbeat_table["ID"].append(ID)
+    heartbeat_table["IP"].append(IP)
+    heartbeat_table["location"].append(location)
+    heartbeat_table["file_system"].append(filesystem)
+    heartbeat_table["last_heartbeat"].append(time_to_heartbeat)
 
 
 class ServerTable(BaseModel):  # table of content for heartbeat request
@@ -134,11 +135,11 @@ def heartbeat(s_table: ServerTable, request: Request):
                 heartbeat_table["last_heartbeat"][heartbeat_table["ID"].index(ID)] = time_to_heartbeat
             else:
                 log.message(f"Heartbeat from new server:\n        ID: {server_id} IP: {request.client}")
-                heartbeat_table["ID"].append(s_table.ID[position])
+                heartbeat_table["ID"].append(int(s_table.ID[position]))
                 heartbeat_table["IP"].append(s_table.IP[position])
                 heartbeat_table["location"].append(s_table.location[position])
                 heartbeat_table["file_system"].append(s_table.file_system[position])
-                heartbeat_table["last_heartbeat"].append(s_table.last_heartbeat[position])
+                heartbeat_table["last_heartbeat"].append(int(s_table.last_heartbeat[position]))
                 log.debug(f"Created {server_id}`s heartbeat:    {s_table.last_heartbeat[position]}")
     except Exception as error:
         log.error(f"heartbeat > {error}")
@@ -212,7 +213,7 @@ def get_file(IDx: int, file: str, request: Request):
 @app.post("/{IDx}/update_sensor")
 def update_sensors(data: Sensor, request: Request, IDx: int):
     global sensors
-    if IDx == ID:
+    if IDx == ID or IDx == -1:
         if data.name in sensors:
             if not data.value:
                 log.message(f"{request.client.host} removed sensor {data.name}")
@@ -346,7 +347,7 @@ def mainloop():
     while True:
         for device_number, device_ID in enumerate(heartbeat_table["ID"]):
             if device_ID != ID:
-                if heartbeat_table["last_heartbeat"][device_number] < 0:
+                if int(heartbeat_table["last_heartbeat"][device_number]) < 0:
                     try:
                         send_heartbeat(heartbeat_table["IP"][device_number], heartbeat_table["ID"][device_number])
                     except requests.exceptions.ConnectionError:
@@ -370,7 +371,7 @@ def mainloop():
                 try:
                     log.debug(
                         f"""{device_ID} : time to heartbeat : {heartbeat_table["last_heartbeat"][device_number]}""")
-                    heartbeat_table["last_heartbeat"][device_number] -= 1
+                    heartbeat_table["last_heartbeat"][device_number] = int(heartbeat_table["last_heartbeat"][device_number]) - 1
                 except IndexError:
                     pass
             if time.time() - time_to_save > save_time and settings["save_table"]:
