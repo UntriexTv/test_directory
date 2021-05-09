@@ -10,19 +10,18 @@ import numpy as np
 protopath = "MobileNetSSD_deploy.prototxt"
 modelpath = "MobileNetSSD_deploy.caffemodel"
 detector = cv2.dnn.readNetFromCaffe(prototxt=protopath, caffeModel=modelpath)
-person_counter = 0
 
 CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
            "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
            "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
            "sofa", "train", "tvmonitor"]
 
-# Create a memory stream so photos doesn't need to be saved in a file
-stream = io.BytesIO()
 
 # Get the picture (low resolution, so it should be quite fast)
 # Here you can also specify other parameters (e.g.:rotate the image)
 while True:
+    person_counter = 0
+    stream = io.BytesIO()
     with picamera.PiCamera() as camera:
         camera.resolution = (320, 240)
         camera.capture(stream, format='jpeg')
@@ -45,11 +44,12 @@ while True:
 
     for i in np.arange(0, person_detections.shape[2]):
         confidence = person_detections[0, 0, i, 2]
-        if confidence > 0.2:
+        if confidence > 0.3:
             idx = int(person_detections[0, 0, i, 1])
 
             if CLASSES[idx] == "person":
                 person_counter += 1
+    print(person_counter)
 
-    r = requests.post("http://127.0.0.1:8000/update_sensor", json={"name": "Pocet ludi", "value": str(person_counter)})
-    time.sleep(30)
+    r = requests.post("http://127.0.0.1:8000/-1/update_sensor", json={"name": "Pocet ludi", "value": str(person_counter)})
+    time.sleep(10)
